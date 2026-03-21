@@ -52,3 +52,57 @@ app.include_router(rag.router, prefix="/api/v1", tags=["RAG"])
 @app.get("/health")
 async def health_check():
     return {"status": "ok", "service": "Credit Scoring API Gateway"}
+
+
+@app.get("/health/deep")
+async def health_deep():
+    """Deep health check — verifies external dependencies."""
+    from config.settings import Settings
+    checks: dict = {}
+
+    # ChromaDB
+    try:
+        import chromadb
+        client = chromadb.PersistentClient(path=Settings.CHROMA_PERSIST_DIR)
+        client.get_collection(Settings.CHROMA_COLLECTION)
+        checks["chromadb"] = "ok"
+    except Exception as e:
+        checks["chromadb"] = f"error: {e}"
+
+    # SQLite
+    try:
+        from sqlalchemy import text
+        from src.db.database import SessionLocal
+        with SessionLocal() as session:
+            session.execute(text("SELECT 1"))
+        checks["sqlite"] = "ok"
+    except Exception as e:
+        checks["sqlite"] = f"error: {e}"
+
+    # Gemini API
+    if Settings.USE_GEMINI:
+        try:
+            import httpx
+            resp = httpx.get(
+                f"https://generativelanguage.googleapis.com/v1beta/models?key={Settings.GEMINI_API_KEY}",
+                timeout=5.0,
+            )
+            checks["gemini"] = "ok" if resp.status_code == 200 else f"status {resp.status_code}"
+        except Exception as e:
+            checks["gemini"] = f"error: {e}"
+
+    # Ollama (only if enabled)
+    if Settings.USE_OLLAMA:
+        try:
+            import httpx
+            resp = httpx.get(f"{Settings.OLLAMA_BASE_URL}/api/tags", timeout=5.0)
+            checks["ollama"] = "ok" if resp.status_code == 200 else f"status {resp.status_code}"
+        except Exception as e:
+            checks["ollama"] = f"error: {e}"
+
+    all_ok = all(v == "ok" for v in checks.values())
+    status_code = 200 if all_ok else 503
+    return JSONResponse(
+        status_code=status_code,
+        content={"status": "ok" if all_ok else "degraded", "checks": checks},
+    )

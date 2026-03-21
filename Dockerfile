@@ -1,18 +1,24 @@
 FROM python:3.12-slim
 
-# Build dependencies for faiss-cpu, numpy, chromadb
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        gcc g++ libopenblas-dev curl \
-    && rm -rf /var/lib/apt/lists/*
-
 # UTF-8 locale for Thai text
 ENV LANG=C.UTF-8 LC_ALL=C.UTF-8
 
+# Install build deps in smaller steps to reduce peak memory
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        gcc g++ libopenblas-dev \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
-# Install Python dependencies first (cache layer)
+# Install Python dependencies (split heavy packages to reduce peak memory)
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir numpy==1.26.4 \
+    && pip install --no-cache-dir faiss-cpu==1.8.0 \
+    && pip install --no-cache-dir chromadb \
+    && pip install --no-cache-dir -r requirements.txt
 
 # Copy project files
 COPY pyproject.toml .

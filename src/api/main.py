@@ -3,7 +3,7 @@ from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 import logging
 
-from src.api.routes import scoring, rag
+from src.api.routes import scoring, rag, predict
 from src.db.database import engine
 from src.db import models
 
@@ -48,6 +48,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 # Include the main scoring router
 app.include_router(scoring.router, prefix="/api/v1", tags=["Decisioning"])
 app.include_router(rag.router, prefix="/api/v1", tags=["RAG"])
+app.include_router(predict.router, prefix="/api/v1", tags=["Frontend"])
 
 @app.get("/health")
 async def health_check():

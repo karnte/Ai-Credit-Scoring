@@ -1,7 +1,14 @@
 {
   "_comment": "Single source of truth for frontend↔backend integration testing. Same user, same numbers, everywhere.",
-  "request_id": "e2e-flow-001",
+
+  "frontend_payload": {
+    "_comment": "Exactly what the frontend POSTs to /predict",
+    "input_text": "Salary=35000, Occupation=Salaried_Employee, Marriage_Status=Single, credit_score=520, credit_grade=DD, outstanding=400000, overdue=25000, Coapplicant=false, loan_amount=2500000, loan_term=25, Interest_rate=5.9",
+    "extra_features": {}
+  },
+
   "features": {
+    "_comment": "Parsed form — used by /plan/simple, /plan/simulate, /plan/batch",
     "Salary": 35000.0,
     "Occupation": "Salaried_Employee",
     "Marriage_Status": "Single",
@@ -13,5 +20,13 @@
     "loan_amount": 2500000.0,
     "loan_term": 25.0,
     "Interest_rate": 5.9
+  },
+
+  "expected": {
+    "_comment": "Ground truth assertions both repos can check",
+    "prediction": "rejected",
+    "confidence_min": 0.0,
+    "confidence_max": 0.50,
+    "required_shap_keys": ["Salary", "credit_score", "outstanding", "overdue", "loan_amount", "loan_term"]
   }
 }

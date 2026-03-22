@@ -269,3 +269,26 @@ class BatchPlanResponse(BaseModel):
     batch_id: str
     summary: BatchSummary
     results: List[BatchItemResult]
+
+
+# -----------------------------------
+# Frontend /predict Bridge Schemas
+# -----------------------------------
+
+class PredictRequest(BaseModel):
+    """Request schema for POST /predict.
+
+    Bridges the frontend's simple interface to the internal scoring + planner pipeline.
+    ``input_text`` is a structured string of key=value pairs (e.g. "Salary=35000, credit_score=520").
+    ``extra_features`` provides additional or override key-value pairs.
+    """
+    input_text: str = Field(..., description="Structured text: 'Salary=35000, credit_score=520, outstanding=400000, ...'")
+    extra_features: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Optional key-value overrides.")
+
+
+class PredictResponse(BaseModel):
+    """Response schema for POST /predict — matches what the frontend expects."""
+    prediction: Any = Field(..., description="Credit decision: 'approved' or 'rejected'.")
+    confidence: float = Field(..., description="Approval probability [0.0 - 1.0].")
+    shap_values: Dict[str, float] = Field(default_factory=dict, description="Feature → SHAP contribution.")
+    explanation: str = Field("", description="Thai-language explanation / improvement plan.")

@@ -1,16 +1,11 @@
 """
 End-to-end single-user flow test.
 
-ONE canonical user → every backend endpoint → verify the data is consistent.
+ONE canonical user → /predict (what the frontend actually calls) → verify
+the full pipeline: input parsing → scoring → planner → RAG → response.
 
-This simulates what the frontend does:
-  1. POST /plan/simple          → get score + plan
-  2. POST /plan/simulate        → what-if with same user
-  3. POST /plan/batch           → batch with same user
-  4. POST /rag/query            → ask a question about the plan
-
-All endpoints receive data derived from the SAME canonical_user.json fixture.
-The frontend only needs to store this ONE object and transform it per endpoint.
+Also tests consistency: the same user sent via /predict and /plan/simple
+must produce the same decision.
 
 Run:
     pytest tests/test_e2e_single_user_flow.py -v
@@ -36,9 +31,9 @@ sys.path.insert(0, str(project_root))
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "canonical_user.json"
 CANONICAL = json.loads(FIXTURE_PATH.read_text())
 
-# The features block is the single source of truth for every endpoint
+FRONTEND_PAYLOAD = CANONICAL["frontend_payload"]
 FEATURES = CANONICAL["features"]
-REQUEST_ID = CANONICAL["request_id"]
+EXPECTED = CANONICAL["expected"]
 
 
 # ---------------------------------------------------------------------------
@@ -61,6 +56,7 @@ def _mock_backend():
     from src.api.main import app
     import src.api.routes.scoring as scoring_mod
     import src.api.routes.rag as rag_mod
+    import src.api.routes.predict as predict_mod
 
     def _patched_make_rag_lookup(query_fn, use_cache=True):
         def rag_lookup(query: str) -> dict:
@@ -85,8 +81,10 @@ def _mock_backend():
 
     with patch.object(scoring_mod, "get_rag_manager", return_value=mock_manager), \
          patch.object(rag_mod, "get_rag_manager", return_value=mock_manager), \
+         patch.object(predict_mod, "get_rag_manager", return_value=mock_manager), \
          patch.object(scoring_mod, "make_rag_lookup", side_effect=_patched_make_rag_lookup), \
-         patch.object(rag_mod, "make_rag_lookup", side_effect=_patched_make_rag_lookup):
+         patch.object(rag_mod, "make_rag_lookup", side_effect=_patched_make_rag_lookup), \
+         patch.object(predict_mod, "make_rag_lookup", side_effect=_patched_make_rag_lookup):
         yield {"app": app, "client": TestClient(app), "mock_manager": mock_manager}
 
     if saved_rag is not None:
@@ -100,188 +98,240 @@ def _mock_backend():
 
 
 # ===================================================================
-# The flow: same user data → every endpoint → consistent results
+# Step 1: /predict — the ONLY endpoint the frontend calls
 # ===================================================================
 
-class TestSingleUserFlow:
-    """
-    Frontend sends ONE user → backend.
-    This test class mirrors the exact sequence a real frontend session does.
-    """
+class TestPredictEndpoint:
+    """Tests for the /predict endpoint using the canonical user fixture."""
 
-    # ------------------------------------------------------------------
-    # Step 1: /plan/simple  —  the primary page (score + plan)
-    # ------------------------------------------------------------------
-    def test_step1_plan_simple(self, _mock_backend):
-        """Frontend form submit → /plan/simple → score + Thai plan."""
+    def test_predict_returns_expected_shape(self, _mock_backend):
+        """POST /predict → response has prediction, confidence, shap_values, explanation."""
         client = _mock_backend["client"]
 
-        # This is exactly what the frontend POSTs
-        payload = {"request_id": REQUEST_ID, "features": FEATURES}
-
-        resp = client.post("/api/v1/plan/simple", json=payload)
+        resp = client.post("/api/v1/predict", json=FRONTEND_PAYLOAD)
         assert resp.status_code == 200, resp.text
         data = resp.json()
 
-        # ── Shape checks (frontend relies on these fields) ──
-        assert data["request_id"] == REQUEST_ID
-        assert isinstance(data["approved"], bool)
-        assert 0.0 <= data["p_approve"] <= 1.0
-        assert 0.0 <= data["p_reject"] <= 1.0
-        assert abs(data["p_approve"] + data["p_reject"] - 1.0) < 0.01
-        assert data["mode"] in ("approved_guidance", "improvement_plan")
-        assert isinstance(data["result_th"], str)
-        assert len(data["result_th"]) > 0  # non-empty plan
+        # Shape the frontend relies on
+        assert "prediction" in data
+        assert "confidence" in data
+        assert "shap_values" in data
+        assert "explanation" in data
 
-        # Save for cross-endpoint consistency checks
-        self.__class__._plan_result = data
+        assert data["prediction"] in ("approved", "rejected")
+        assert 0.0 <= data["confidence"] <= 1.0
+        assert isinstance(data["shap_values"], dict)
+        assert isinstance(data["explanation"], str)
 
-    # ------------------------------------------------------------------
-    # Step 2: /plan/simulate  —  what-if page (same user, tweaked)
-    # ------------------------------------------------------------------
-    def test_step2_simulate_what_if(self, _mock_backend):
-        """Frontend what-if slider → /plan/simulate → before/after comparison."""
+    def test_predict_matches_expected_decision(self, _mock_backend):
+        """Canonical user (weak profile) should be rejected."""
+        client = _mock_backend["client"]
+
+        resp = client.post("/api/v1/predict", json=FRONTEND_PAYLOAD)
+        data = resp.json()
+
+        assert data["prediction"] == EXPECTED["prediction"]
+        assert data["confidence"] >= EXPECTED["confidence_min"]
+        assert data["confidence"] <= EXPECTED["confidence_max"]
+
+    def test_predict_returns_shap_for_key_features(self, _mock_backend):
+        """SHAP values must include the features the frontend displays."""
+        client = _mock_backend["client"]
+
+        resp = client.post("/api/v1/predict", json=FRONTEND_PAYLOAD)
+        data = resp.json()
+
+        for key in EXPECTED["required_shap_keys"]:
+            assert key in data["shap_values"], f"Missing SHAP key: {key}"
+
+    def test_predict_returns_explanation(self, _mock_backend):
+        """Explanation (Thai plan) should be non-empty for rejected applicant."""
+        client = _mock_backend["client"]
+
+        resp = client.post("/api/v1/predict", json=FRONTEND_PAYLOAD)
+        data = resp.json()
+
+        if data["prediction"] == "rejected":
+            assert len(data["explanation"]) > 0, "Rejected applicant should get an explanation"
+
+    def test_predict_with_extra_features_override(self, _mock_backend):
+        """extra_features can override values from input_text."""
+        client = _mock_backend["client"]
+
+        # Override Salary to a high value via extra_features
+        payload = {
+            "input_text": FRONTEND_PAYLOAD["input_text"],
+            "extra_features": {"Salary": 150000.0, "credit_score": 780.0, "credit_grade": "AA", "outstanding": 0, "overdue": 0},
+        }
+        resp = client.post("/api/v1/predict", json=payload)
+        assert resp.status_code == 200
+        data = resp.json()
+
+        # Strong override should flip to approved
+        assert data["prediction"] == "approved"
+        assert data["confidence"] > 0.5
+
+    def test_predict_with_extra_features_partial(self, _mock_backend):
+        """extra_features can add just one field without breaking the rest."""
         client = _mock_backend["client"]
 
         payload = {
-            "request_id": f"{REQUEST_ID}-sim",
-            "features": FEATURES,              # same user
-            "what_if": {
-                "outstanding": {"delta": -200000},   # pay down debt
-                "credit_grade": {"value": "BB"},     # grade improves
-            },
+            "input_text": FRONTEND_PAYLOAD["input_text"],
+            "extra_features": {"Interest_rate": 3.5},
         }
-
-        resp = client.post("/api/v1/plan/simulate", json=payload)
-        assert resp.status_code == 200, resp.text
+        resp = client.post("/api/v1/predict", json=payload)
+        assert resp.status_code == 200
         data = resp.json()
+        assert data["prediction"] in ("approved", "rejected")
 
-        # ── Shape checks ──
-        assert "baseline" in data
-        assert "simulated" in data
-        assert isinstance(data["delta_p_approve"], float)
-        assert isinstance(data["verdict"], str)
-        assert set(data["changed_features"]) == {"outstanding", "credit_grade"}
 
-        # Baseline should use exact same features
-        baseline = data["baseline"]
-        assert isinstance(baseline["approved"], bool)
-        assert 0.0 <= baseline["p_approve"] <= 1.0
+# ===================================================================
+# Step 2: Input parsing — verify structured text is parsed correctly
+# ===================================================================
 
-        # Paying down debt + better grade should improve approval odds
-        assert data["delta_p_approve"] > 0, "Reducing debt + better grade should increase approval chance"
+class TestInputParsing:
+    """Verify the input_text parser handles various formats."""
 
-    # ------------------------------------------------------------------
-    # Step 3: /plan/batch  —  bulk upload page (same user as one item)
-    # ------------------------------------------------------------------
-    def test_step3_batch_single_item(self, _mock_backend):
-        """Frontend batch upload → /plan/batch → consistent with /plan/simple."""
+    def test_parse_standard_format(self, _mock_backend):
+        """Standard comma-separated key=value pairs."""
         client = _mock_backend["client"]
 
         payload = {
-            "batch_id": "e2e-batch-001",
-            "include_plan": False,
-            "items": [{"request_id": REQUEST_ID, "features": FEATURES}],
+            "input_text": "Salary=50000, credit_score=700, loan_amount=1000000, loan_term=20",
+            "extra_features": {},
         }
+        resp = client.post("/api/v1/predict", json=payload)
+        assert resp.status_code == 200
 
-        resp = client.post("/api/v1/plan/batch", json=payload)
-        assert resp.status_code == 200, resp.text
-        data = resp.json()
-
-        assert data["summary"]["total"] == 1
-        assert len(data["results"]) == 1
-
-        item = data["results"][0]
-        assert item["request_id"] == REQUEST_ID
-        assert isinstance(item["approved"], bool)
-        assert 0.0 <= item["p_approve"] <= 1.0
-
-    # ------------------------------------------------------------------
-    # Step 4: /rag/query  —  user asks a follow-up question
-    # ------------------------------------------------------------------
-    def test_step4_rag_followup_question(self, _mock_backend):
-        """User asks clarifying question → /rag/query → structured answer."""
+    def test_parse_semicolons(self, _mock_backend):
+        """Semicolon-separated pairs."""
         client = _mock_backend["client"]
 
         payload = {
-            "question": "เอกสารที่ต้องใช้สมัครสินเชื่อบ้านมีอะไรบ้าง",
-            "top_k": 4,
+            "input_text": "Salary=50000; credit_score=700; loan_amount=1000000; loan_term=20",
+            "extra_features": {},
         }
+        resp = client.post("/api/v1/predict", json=payload)
+        assert resp.status_code == 200
 
-        resp = client.post("/api/v1/rag/query", json=payload)
-        assert resp.status_code == 200, resp.text
-        data = resp.json()
-
-        assert "answer" in data
-        assert isinstance(data["answer"], str)
-        assert "sources" in data
-        assert "router_label" in data
-
-    # ------------------------------------------------------------------
-    # Cross-check: /plan/simple and /plan/batch give same decision
-    # ------------------------------------------------------------------
-    def test_step5_consistency_simple_vs_batch(self, _mock_backend):
-        """Same features → /plan/simple and /plan/batch must agree on approval."""
+    def test_parse_aliases(self, _mock_backend):
+        """Lowercase aliases (salary → Salary, coapplicant → Coapplicant)."""
         client = _mock_backend["client"]
 
-        # /plan/simple
+        payload = {
+            "input_text": "salary=50000, credit_score=700, loan_amount=1000000, loan_term=20, coapplicant=true",
+            "extra_features": {},
+        }
+        resp = client.post("/api/v1/predict", json=payload)
+        assert resp.status_code == 200
+
+    def test_missing_required_field(self, _mock_backend):
+        """Missing Salary and credit_score → 422."""
+        client = _mock_backend["client"]
+
+        payload = {
+            "input_text": "loan_amount=1000000, loan_term=20",
+            "extra_features": {},
+        }
+        resp = client.post("/api/v1/predict", json=payload)
+        assert resp.status_code == 422
+
+    def test_empty_input_text(self, _mock_backend):
+        """Empty string → 422 (no features parsed)."""
+        client = _mock_backend["client"]
+
+        resp = client.post("/api/v1/predict", json={"input_text": "", "extra_features": {}})
+        assert resp.status_code == 422
+
+
+# ===================================================================
+# Step 3: Consistency — /predict and /plan/simple agree
+# ===================================================================
+
+class TestCrossEndpointConsistency:
+    """Same user data via different endpoints must produce the same decision."""
+
+    def test_predict_vs_plan_simple_same_decision(self, _mock_backend):
+        """/predict and /plan/simple with same features → same approval decision."""
+        client = _mock_backend["client"]
+
+        # /predict (frontend format)
+        predict_resp = client.post("/api/v1/predict", json=FRONTEND_PAYLOAD)
+        predict_data = predict_resp.json()
+
+        # /plan/simple (internal format, same features)
+        # Remove _comment key from features
+        clean_features = {k: v for k, v in FEATURES.items() if k != "_comment"}
         simple_resp = client.post("/api/v1/plan/simple", json={
-            "request_id": f"{REQUEST_ID}-cmp-simple",
-            "features": FEATURES,
+            "request_id": "consistency-check",
+            "features": clean_features,
         })
-        simple = simple_resp.json()
+        simple_data = simple_resp.json()
 
-        # /plan/batch (score-only)
+        # Decisions must match
+        predict_approved = predict_data["prediction"] == "approved"
+        assert predict_approved == simple_data["approved"], (
+            f"/predict says {predict_data['prediction']}, "
+            f"/plan/simple says approved={simple_data['approved']}"
+        )
+
+        # Confidence should match p_approve
+        assert abs(predict_data["confidence"] - simple_data["p_approve"]) < 0.001, (
+            f"confidence mismatch: predict={predict_data['confidence']}, "
+            f"simple p_approve={simple_data['p_approve']}"
+        )
+
+    def test_predict_vs_batch_same_decision(self, _mock_backend):
+        """/predict and /plan/batch with same features → same approval decision."""
+        client = _mock_backend["client"]
+
+        predict_resp = client.post("/api/v1/predict", json=FRONTEND_PAYLOAD)
+        predict_data = predict_resp.json()
+
+        clean_features = {k: v for k, v in FEATURES.items() if k != "_comment"}
         batch_resp = client.post("/api/v1/plan/batch", json={
-            "batch_id": "e2e-consistency",
+            "batch_id": "consistency-batch",
             "include_plan": False,
-            "items": [{"request_id": f"{REQUEST_ID}-cmp-batch", "features": FEATURES}],
+            "items": [{"request_id": "batch-cmp", "features": clean_features}],
         })
         batch_item = batch_resp.json()["results"][0]
 
-        # Must agree
-        assert simple["approved"] == batch_item["approved"], (
-            f"/plan/simple says approved={simple['approved']}, "
-            f"/plan/batch says approved={batch_item['approved']}"
-        )
-        assert abs(simple["p_approve"] - batch_item["p_approve"]) < 0.001, (
-            f"p_approve mismatch: simple={simple['p_approve']}, batch={batch_item['p_approve']}"
-        )
+        predict_approved = predict_data["prediction"] == "approved"
+        assert predict_approved == batch_item["approved"]
+        assert abs(predict_data["confidence"] - batch_item["p_approve"]) < 0.001
 
 
 # ===================================================================
-# Negative path: bad data from frontend
+# Step 4: Full dataflow trace through /predict
 # ===================================================================
 
-class TestFrontendErrorHandling:
-    """Frontend sends bad data → backend returns useful 422 errors."""
+class TestPredictDataflow:
+    """Verify /predict actually invokes scoring → planner → RAG."""
 
-    def test_missing_required_field(self, _mock_backend):
-        """Missing Salary → 422 with clear error."""
+    def test_predict_calls_rag_for_rejected(self, _mock_backend):
+        """Rejected applicant → planner queries RAG for improvement actions."""
         client = _mock_backend["client"]
-        bad_features = {k: v for k, v in FEATURES.items() if k != "Salary"}
-        resp = client.post("/api/v1/plan/simple", json={
-            "request_id": "bad-001",
-            "features": bad_features,
-        })
-        assert resp.status_code == 422
+        mock_manager = _mock_backend["mock_manager"]
 
-    def test_invalid_credit_grade_in_simulation(self, _mock_backend):
-        """Invalid credit_grade in what_if → 422."""
-        client = _mock_backend["client"]
-        resp = client.post("/api/v1/plan/simulate", json={
-            "request_id": "bad-sim-001",
-            "features": FEATURES,
-            "what_if": {"credit_grade": {"value": "ZZ"}},  # invalid grade
-        })
-        # Should get 422 or 500 with clear message
-        assert resp.status_code in (422, 500)
+        resp = client.post("/api/v1/predict", json=FRONTEND_PAYLOAD)
+        data = resp.json()
 
-    def test_empty_batch(self, _mock_backend):
-        """Empty items list → 422."""
+        if data["prediction"] == "rejected":
+            # RAG should have been consulted for the improvement plan
+            assert mock_manager.query.call_count > 0, (
+                "Rejected applicant should trigger RAG queries for improvement plan"
+            )
+
+    def test_predict_approved_still_returns_explanation(self, _mock_backend):
+        """Even approved applicants get an explanation (approval checklist)."""
         client = _mock_backend["client"]
-        resp = client.post("/api/v1/plan/batch", json={
-            "batch_id": "bad-batch",
-            "items": [],
-        })
-        assert resp.status_code == 422
+
+        payload = {
+            "input_text": "Salary=150000, credit_score=800, credit_grade=AA, outstanding=0, overdue=0, loan_amount=1000000, loan_term=15",
+            "extra_features": {},
+        }
+        resp = client.post("/api/v1/predict", json=payload)
+        data = resp.json()
+
+        assert data["prediction"] == "approved"
+        assert isinstance(data["explanation"], str)

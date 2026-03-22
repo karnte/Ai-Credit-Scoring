@@ -1239,9 +1239,13 @@ class StructuredDocumentParser:
             original_category = str(metadata.get("category", "")).strip()
             category_lower = original_category.lower()
             resolved_category = original_category
+            _explicit_categories = {
+                "fee_structure", "interest_structure", "refinance",
+                "hardship_support", "policy_requirement",
+            }
             if topic in {"unrelated", "unrelated_web_chrome"} and category_lower == "bank_policy":
                 resolved_category = "unrelated"
-            elif topic in TOPIC_TO_CATEGORY and topic != "unrelated":
+            elif category_lower not in _explicit_categories and topic in TOPIC_TO_CATEGORY and topic != "unrelated":
                 resolved_category = TOPIC_TO_CATEGORY[topic]
             elif not resolved_category and topic in TOPIC_TO_CATEGORY:
                 resolved_category = TOPIC_TO_CATEGORY[topic]

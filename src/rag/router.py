@@ -26,9 +26,9 @@ ROUTE_LABELS = (
 
 ROUTE_KEYWORDS: Dict[str, List[str]] = {
     "interest_structure": ["ดอกเบี้ย", "mrr", "fixed", "floating", "%", "ปีแรก"],
-    "fee_structure": ["ค่าธรรมเนียม", "ค่าปรับ", "ปิดบัญชี", "ปิดก่อนกำหนด", "จดจำนอง", "ค่าใช้จ่าย"],
+    "fee_structure": ["ค่าธรรมเนียม", "ค่าปรับ", "ปิดบัญชี", "ปิดก่อนกำหนด", "จดจำนอง", "ค่าใช้จ่าย", "ประกันอัคคีภัย", "เบี้ยประกัน"],
     "refinance": ["รีไฟแนนซ์", "บ้านแลกเงิน", "mortgage power", "refinance"],
-    "hardship_support": ["ผ่อนไม่ไหว", "ปรับโครงสร้างหนี้", "พักชำระ", "มาตรการ", "โควิด", "น้ำท่วม"],
+    "hardship_support": ["ผ่อนไม่ไหว", "ปรับโครงสร้างหนี้", "พักชำระ", "พักชำระดอกเบี้ย", "พักชำระหนี้", "มาตรการ", "โควิด", "น้ำท่วม", "ขยายระยะเวลา", "ขยายสัญญา", "ขยายเวลา"],
     "policy_requirement": ["คุณสมบัติ", "เอกสาร", "รายได้ขั้นต่ำ", "อาชีพ", "สัญชาติ", "เงื่อนไข"],
 }
 
@@ -216,6 +216,7 @@ def build_metadata_filters(router_label: str) -> Optional[MetadataFilters]:
             filters=[
                 _eq_filter("category", "hardship_support"),
                 _eq_filter("category", "consumer_guideline"),
+                _eq_filter("category", "policy_requirement"),
             ],
             condition=FilterCondition.OR,
         )

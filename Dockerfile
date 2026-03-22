@@ -28,8 +28,7 @@ COPY src/ src/
 COPY data/documents/ data/documents/
 RUN pip install --no-cache-dir --no-deps -e .
 
-# Pre-download BGE-M3 embeddings to avoid cold-start
-RUN python -c "from huggingface_hub import snapshot_download; snapshot_download('BAAI/bge-m3')"
+# BGE-M3 downloads at runtime into the huggingface_cache volume (saves ~2.4GB image size)
 
 # Create storage directories
 RUN mkdir -p storage/chroma data

@@ -35,7 +35,8 @@ RUN mkdir -p storage/chroma data
 
 # Non-root user
 RUN useradd -m -u 1000 appuser \
-    && chown -R appuser:appuser /app
+    && mkdir -p /home/appuser/.cache/llama_index /home/appuser/.cache/huggingface \
+    && chown -R appuser:appuser /app /home/appuser/.cache
 USER appuser
 
 EXPOSE 8000

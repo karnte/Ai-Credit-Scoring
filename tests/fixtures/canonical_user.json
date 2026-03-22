@@ -1,0 +1,17 @@
+{
+  "_comment": "Single source of truth for frontend↔backend integration testing. Same user, same numbers, everywhere.",
+  "request_id": "e2e-flow-001",
+  "features": {
+    "Salary": 35000.0,
+    "Occupation": "Salaried_Employee",
+    "Marriage_Status": "Single",
+    "credit_score": 520.0,
+    "credit_grade": "DD",
+    "outstanding": 400000.0,
+    "overdue": 25000.0,
+    "Coapplicant": false,
+    "loan_amount": 2500000.0,
+    "loan_term": 25.0,
+    "Interest_rate": 5.9
+  }
+}

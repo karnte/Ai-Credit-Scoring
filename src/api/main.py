@@ -15,8 +15,11 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 
-# Create database tables
-models.Base.metadata.create_all(bind=engine)
+# Create database tables (try/except handles race condition with multiple workers)
+try:
+    models.Base.metadata.create_all(bind=engine)
+except Exception:
+    pass  # Table already created by another worker
 
 app = FastAPI(
     title="AI Credit Scoring API Gateway",

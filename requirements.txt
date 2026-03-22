@@ -2,6 +2,7 @@
 llama-index-core>=0.14.0
 llama-index-llms-openai
 llama-index-embeddings-openai
+llama-index-embeddings-huggingface
 llama-index-vector-stores-faiss
 llama-index-vector-stores-chroma
 

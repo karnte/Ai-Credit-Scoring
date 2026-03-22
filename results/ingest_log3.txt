@@ -1,0 +1,29 @@
+C:\Users\Kanna\AppData\Local\Programs\Python\Python312\Lib\site-packages\torch\utils\_pytree.py:185: FutureWarning: optree is installed but the version is too old to support PyTorch Dynamo in C++ pytree. C++ pytree support is disabled. Please consider upgrading optree using `python3 -m pip install --upgrade 'optree>=0.13.0'`.
+  warnings.warn(
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1774009851.258060   23968 port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1774009852.882457   23968 port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+WARNING:tensorflow:From C:\Users\Kanna\AppData\Local\Programs\Python\Python312\Lib\site-packages\tf_keras\src\losses.py:2976: The name tf.losses.sparse_softmax_cross_entropy is deprecated. Please use tf.compat.v1.losses.sparse_softmax_cross_entropy instead.
+
+Using Ollama config: model=gemma3:4b, base_url=http://localhost:11434
+Vector store: chroma
+Embedding model: BAAI/bge-m3
+Reset Chroma collection on ingest: True
+Documents parsed (total): 36
+Documents indexed: 25
+Documents quarantined: 11
+Top quarantined documents:
+  - อัตราดอกเบี้ย ค่าปรับ ค่าบริการ และค่าธรรมเนียมบัตรเครดิต มีผลตั้งแต่ 20 ตุลาคม 2563 | reason=no_home_loan_keywords_or_url_hints
+  - Customer Profiling ฟีเจอร์ใหม่เพิ่มความปลอดภัยให้ธุรกรรมออนไลน์ | reason=unrelated_title_topic
+  - ช่องทางเสนอแนะหรือร้องเรียน | CIMB Thai Important Notice | reason=no_home_loan_keywords_or_url_hints
+  - ประกันอัคคีภัย สำหรับสินเชื่อมีหลักประกัน | CIMB TH | reason=high_chrome_noise_ratio
+  - แบบฟอร์มยกเลิกวงเงิน/ปิดบัญชี/ไถ่ถอนหลักประกัน (สินเชื่อ) | reason=high_chrome_noise_ratio
+  - การประมวลผลข้อมูลส่วนบุคคลของท่าน | reason=unrelated_navigation_content
+  - ประกาศความเป็นส่วนตัว  |  ซีไอเอ็มบี ไทย | CIMB TH | reason=negative_indicators_dominate
+  - การให้สินเชื่ออย่างรับผิดชอบและเป็นธรรม (Responsible Lending) | reason=unrelated_navigation_content
+  - ค่าธรรมเนียมบริการ มีผลบังคับใช้ 1 มีนาคม 2569 | reason=no_home_loan_keywords_or_url_hints
+  - ข้อมูลคุณภาพการให้บริการ | บริการช่วยเหลือ  CIMB TH | reason=no_home_loan_keywords_or_url_hints
+Deleted existing Chroma collection: cimb_loans_bge_m3
+Index built and stored in ChromaDB at: ./storage/chroma (collection: cimb_loans_bge_m3)
+Fingerprint sanity check passed: CLEANING_VERSION=2026-03-04-v1

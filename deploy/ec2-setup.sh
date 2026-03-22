@@ -56,8 +56,14 @@ apt-get install -y locales
 locale-gen en_US.UTF-8 th_TH.UTF-8
 update-locale LANG=en_US.UTF-8
 
-# AWS CLI (for SSM Parameter Store secrets)
-apt-get install -y awscli
+# AWS CLI v2 (for SSM Parameter Store secrets)
+if ! command -v aws &> /dev/null; then
+    curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "/tmp/awscliv2.zip"
+    apt-get install -y unzip
+    unzip -q /tmp/awscliv2.zip -d /tmp
+    /tmp/aws/install
+    rm -rf /tmp/awscliv2.zip /tmp/aws
+fi
 
 # Copy systemd service
 cp /opt/credit-scoring/deploy/systemd/credit-scoring.service /etc/systemd/system/
